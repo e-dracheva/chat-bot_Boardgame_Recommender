@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import os
 from implicit.als import AlternatingLeastSquares as ALS
+import sqlite3
 
 os.environ["OPENBLAS_NUM_THREADS"] = "1"  # For implicit ALS
 
@@ -14,6 +15,8 @@ load_dotenv()
 TOKEN = (os.getenv('TOKEN'))
 bot = telebot.TeleBot(TOKEN)
 model = ALS().load(os.getenv('als_model'))
+
+nickname = None
 
 
 b_games = pd.read_feather(os.getenv('bgg_boardgames_top_2000'))
@@ -180,8 +183,76 @@ def item(message):
 
 @bot.message_handler(commands=['user_recs'])
 def user_recs(message):
-    msg = bot.send_message(message.chat.id, 'Помогу найти похожую игру. Введи название 🙂', parse_mode='html')
-    bot.register_next_step_handler(msg, item)
+   
+    conn = sqlite3.connect('database_board_games.sql')
+    cur = conn.cursor()
+    cur.execute('CREATE TABLE IF NOT EXISTS users (id int auto_increment primary key, nickname varchar(50), pass varchar(50))')
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    msg = bot.send_message(message.chat.id, 'Чтобы дать персональные рекомендации, давайте поймем кто вы 🙂 \nВведите никнейм', parse_mode='html')
+    bot.register_next_step_handler(msg, define_user)
+
+def define_user(message):
+    pass
+    
+def user_name(message):
+    global nickname 
+    nickname = message.text.strip()
+    bot.send_message(message.chat.id, 'Введите пароль 🙂', parse_mode='html')
+    bot.register_next_step_handler(message, user_pass)
+    
+def user_pass(message):
+    password = message.text.strip()
+    bot.send_message(message.chat.id, 'Введите пароль 🙂', parse_mode='html')
+    bot.register_next_step_handler(message, user_pass)
+
+    conn = sqlite3.connect('database_board_games.sql')
+    cur = conn.cursor()
+    cur.execute("INSERT INTO users(nickname, pass) VALUES ('%s', '%s')" % (nickname, password))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton('Список пользователей', callback_data='users'))
+    bot.send_message(message.chat.id, 'Пользователь зарегистрирован 🙂', parse_mode='html', reply_markup=markup)
+
+
+@bot.callback_query_handler(func = lambda call: True)
+def callback(call):
+  conn = sqlite3.connect('database_board_games.sql')
+  cur = conn.cursor()
+  
+  cur.execute("SELECT * FROM users")
+  users = cur.fetchall()
+  
+  info = ''
+  for el in users:
+      info += f'Имя: {el[1]}\n'
+  
+  cur.close()
+  conn.close()
+  
+  bot.send_message(call.message.chat.id, info)
 
 
 bot.polling(non_stop=True)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
