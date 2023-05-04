@@ -1,0 +1,11 @@
+beautifulsoup4==4.11.1
+implicit==0.6.2
+pandas==1.4.2
+Pillow==9.5.0
+pyTelegramBotAPI==4.11.0
+python-dotenv==1.0.0
+Requests==2.29.0
+numpy==1.21.5
+scipy==1.7.3
+matplotlib==3.7.1
+more_itertools==8.12.0
