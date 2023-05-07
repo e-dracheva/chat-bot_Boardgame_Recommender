@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 import os
 from implicit.als import AlternatingLeastSquares as ALS
 import sqlite3
+from telebot.types import WebAppInfo
+import numpy as np
+import scipy.sparse as sp
 
 os.environ["OPENBLAS_NUM_THREADS"] = "1"  # For implicit ALS
 
@@ -47,24 +50,19 @@ def get_similar_games(title, model, message, N=5, idx=0,
     similar['item_id'] = similar['col_id'].map(items_inv_mapping.get)
     similar['title'] = similar['item_id'].map(item_titles.get)
 
-    for i in range(1,len(similar["item_id"])):
-        url=b_games.loc[b_games["boardgame_id"]==similar['item_id'][i],"image_link"][:1].values[0]
+    for i in range(1, N+1):
+        url=b_games.loc[b_games["boardgame_id"]==similar['item_id'][i],"image_link"].values[0]
         img=Image.open(requests.get(url,stream=True).raw)
+        markup = telebot.types.InlineKeyboardMarkup()
+        btn1 = telebot.types.InlineKeyboardButton('Посмотреть описание', callback_data='description')
+        btn2 = telebot.types.InlineKeyboardButton('Купить', web_app=WebAppInfo(url = 'https://e-dracheva.github.io/'))
+        markup.add(btn1, btn2)
         bot.send_photo(message.chat.id, 
             img,
             caption = (
-            f'''
-        Номер: {similar.index[i]}. 
-        <b>Название</b>: <u style="color:red">{similar.iloc[i].title}</u>
-        <b>Рейтинг</b>: {b_games.loc[b_games["boardgame_id"]==similar['item_id'][i],"average_rating"].values[0].astype(float).round(2)}
-       '''# <b>Минимальное количество игроков</b>: {popularGames.iloc[i].minplayers}
-       # <b>Максимальное количество игроков</b>: {popularGames.iloc[i].maxplayers}
-       #<b>Время игры</b>: {popularGames.iloc[i].maxplaytime} минут
-        #<b>Минимальный возраст для игры</b>: {popularGames.iloc[i].age}
-        #<b>Механики</b>: {popularGames.iloc[i].mechanics.replace('|', ', ')}
-        #<b>Категория</b>: {popularGames.iloc[i].category.replace('|', ', ')}'''
-        ),
-        parse_mode='html')
+            f'''<b>{similar.iloc[i].title}</b>'''),
+        parse_mode='html',
+        reply_markup = 	markup)
 
 
 def get_categories():
@@ -92,28 +90,71 @@ def popular_games(df, message, n=10):
                                           ignore_index=True).head(n+100).sample(n)
 
     for i in range(len(popularGames["boardgame_id"])):
-        url=popularGames.iloc[i]['image_link'] #5 столбец - это image_link
+        url=popularGames.iloc[i]['image_link']
         img=Image.open(requests.get(url,stream=True).raw)
+        markup = telebot.types.InlineKeyboardMarkup()
+        btn1 = telebot.types.InlineKeyboardButton('Посмотреть описание', callback_data='description')
+        btn2 = telebot.types.InlineKeyboardButton('Купить', web_app=WebAppInfo(url = 'https://e-dracheva.github.io/'))
+        markup.add(btn1, btn2)
         bot.send_photo(message.chat.id, 
             img,
             caption = (
             f'''
-        Номер в рейтинге: {popularGames.index[i]+1}. 
-        <b>Название</b>: <u style="color:red">{popularGames.iloc[i].title}</u>
-        <b>Рейтинг</b>: {popularGames.iloc[i].average_rating.astype(float).round(2)}
-        <b>Минимальное количество игроков</b>: {popularGames.iloc[i].minplayers}
-        <b>Максимальное количество игроков</b>: {popularGames.iloc[i].maxplayers}
-        <b>Время игры</b>: {popularGames.iloc[i].maxplaytime} минут
-        <b>Минимальный возраст для игры</b>: {popularGames.iloc[i].age}
-        <b>Механики</b>: {popularGames.iloc[i].mechanics.replace('|', ', ')}
-        <b>Категория</b>: {popularGames.iloc[i].category.replace('|', ', ')}
+        <b>{popularGames.iloc[i].title}</b>
         '''),
-        parse_mode='html')
+        parse_mode='html',
+        reply_markup = 	markup)
+
+def get_coo_matrix(df, 
+                   user_col='nickname', 
+                   item_col='boardgame_id', 
+                   weight_col=None, 
+                   users_mapping=users_mapping, 
+                   items_mapping=items_mapping):
+    if weight_col is None:
+        weights = np.ones(len(df), dtype=np.float32)
+    else:
+        weights = df[weight_col].astype(np.float32)
+
+    interaction_matrix = sp.coo_matrix((
+        weights, 
+        (
+            df[user_col].map(users_mapping.get), 
+            df[item_col].map(items_mapping.get)
+        )
+    ))
+    return interaction_matrix            
+
+def generate_personal_recs(message, user, model=model, matrix=get_coo_matrix(ratings).tocsr(), N=5, 
+                           users_mapping=users_mapping, items_inv_mapping=items_inv_mapping):
+
+    user_id = users_mapping[user]
+    recs = model.recommend(user_id, 
+                               matrix[user_id], 
+                               N=N, 
+                               filter_already_liked_items=True)
+
+    recs = pd.DataFrame(recs).T.rename(columns = {0: 'col_id', 1: 'similarity'})
+    recs['item_id'] = recs['col_id'].map(items_inv_mapping.get)
+    recs['title'] = recs['item_id'].map(item_titles.get)
+    for i in range(N):
+        url=b_games.loc[b_games["boardgame_id"]==recs['item_id'][i],"image_link"].values[0]
+        img=Image.open(requests.get(url,stream=True).raw)
+        markup = telebot.types.InlineKeyboardMarkup()
+        btn1 = telebot.types.InlineKeyboardButton('Посмотреть описание', callback_data='description')
+        btn2 = telebot.types.InlineKeyboardButton('Купить', web_app=WebAppInfo(url = 'https://e-dracheva.github.io/'))
+        markup.add(btn1, btn2)
+        bot.send_photo(message.chat.id, 
+            img,
+            caption = (
+            f'''<b>{recs.iloc[i].title}</b>'''),
+        parse_mode='html',
+        reply_markup = 	markup)
 
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, 'Привет!', parse_mode='html')
+    bot.send_message(message.chat.id, 'Привет! \nЭтот бот умеет рекомендовать тебе различные настольные игры 🙂 Выбери, как ты хочешь получить рекомендации - посмотреть самое популярное или найти похожую игру. Если у тебя есть учетка, то ты можешь посмотреть персональные рекомендации. Также можно просто запросить случайную игру. Учти, что бот работает пока только на английском языке 🙂', parse_mode='html')
 
 @bot.message_handler(commands=['top'])
 def top(message):
@@ -121,11 +162,13 @@ def top(message):
                            'Сколько игр тебе показать? 🙂 (пришли цифру)', 
                            parse_mode='html')
     bot.register_next_step_handler(msg, number)
+    
 def number(message):
     try:
             popular_games(b_games, message, n=int(message.text))
     except ValueError:
-            bot.send_message(message.chat.id, 'Не понимаю 🙁', parse_mode='html')
+            bot.reply_to(message, 'Не понимаю 🙁', parse_mode='html')
+
 
 @bot.message_handler(commands=['random'])
 def random(message):
@@ -133,38 +176,18 @@ def random(message):
     sample = b_games.sample()
     sample.average_rating = sample.average_rating.astype(float).round(2)
     img=Image.open(requests.get(sample['image_link'].values[0],stream=True).raw)
+    markup = telebot.types.InlineKeyboardMarkup()
+    btn1 = telebot.types.InlineKeyboardButton('Посмотреть описание', callback_data='description')
+    btn2 = telebot.types.InlineKeyboardButton('Купить', web_app=WebAppInfo(url = 'https://e-dracheva.github.io/'))
+    markup.add(btn1, btn2)
     bot.send_photo(message.chat.id, 
         img, 
         caption = 
         f'''
-        <b>Название</b>: <u>{sample.title.values[0]}</u>
-        <b>Рейтинг</b>: {sample.average_rating.values[0]}
-        <b>Минимальное количество игроков</b>: {sample.minplayers.values[0]}
-        <b>Максимальное количество игроков</b>: {sample.maxplayers.values[0]}
-        <b>Время игры</b>: {sample.maxplaytime.values[0]} минут
-        <b>Минимальный возраст для игры</b>: {sample.age.values[0]}
-        <b>Механики</b>: {sample.mechanics.values[0].replace('|', ', ')}
-        <b>Категория</b>: {sample.category.values[0].replace('|', ', ')}
+        {sample.title.values[0]}
         ''',
-        parse_mode='html'
-        )
-    
-@bot.message_handler(commands=['description'])
-def description(message):
-    msg = bot.send_message(message.chat.id, 
-                           'Описание какой настольной игру ты хочешь узнать? 🙂 (работает только на английском языке)', 
-                           parse_mode='html')
-    bot.register_next_step_handler(msg, game_title)
-def game_title(message):
-    try:
-        output = BeautifulSoup(b_games.loc[b_games['title'].str.contains(message.text, case = False)]['description'].values[0], features="lxml").get_text()
-        bot.send_message(message.chat.id, 
-            f''' 
-            <b>{b_games.loc[b_games['title'].str.contains(message.text, case = False)]['title'].values[0]}</b>
-            {output}''',
-            parse_mode='html')
-    except:
-        bot.send_message(message.chat.id, 'Извини, либо нет такой игры либо что-то пошло не так🙂', parse_mode='html')
+        parse_mode='html',
+        reply_markup = 	markup)
 
 
 @bot.message_handler(commands=['item_recs'])
@@ -174,9 +197,7 @@ def item_recs(message):
 def item(message):
     try:
         title = b_games.loc[b_games['title'].str.contains(message.text, case = False)]['title'].values[0]
-        bot.send_message(message.chat.id, 
-            get_similar_games(title, model, message),
-            parse_mode='html')
+        get_similar_games(title, model, message)
     except:
         bot.send_message(message.chat.id, 'Извини, либо нет такой игры либо что-то пошло не так🙂', parse_mode='html')
 
@@ -184,31 +205,61 @@ def item(message):
 @bot.message_handler(commands=['user_recs'])
 def user_recs(message):
    
-    conn = sqlite3.connect('database_board_games.sql')
+    conn = sqlite3.connect('user_data.sql')
     cur = conn.cursor()
-    cur.execute('CREATE TABLE IF NOT EXISTS users (id int auto_increment primary key, nickname varchar(50), pass varchar(50))')
+    cur.execute('CREATE TABLE IF NOT EXISTS user_info (id int auto_increment primary key, nickname varchar(50), pass varchar(50))')
     conn.commit()
     cur.close()
     conn.close()
     
-    msg = bot.send_message(message.chat.id, 'Чтобы дать персональные рекомендации, давайте поймем кто вы 🙂 \nВведите никнейм', parse_mode='html')
-    bot.register_next_step_handler(msg, define_user)
+    msg = bot.send_message(message.chat.id, 
+                           'Чтобы дать персональные рекомендации, давайте поймем кто вы 🙂 \nВведите никнейм', 
+                           parse_mode='html')
+    bot.register_next_step_handler(msg, user_name)
 
-def define_user(message):
-    pass
-    
 def user_name(message):
     global nickname 
     nickname = message.text.strip()
-    bot.send_message(message.chat.id, 'Введите пароль 🙂', parse_mode='html')
-    bot.register_next_step_handler(message, user_pass)
+    conn = sqlite3.connect('user_data.sql')
+    cur = conn.cursor()
+    result = cur.execute(f'SELECT nickname FROM user_info WHERE nickname="{nickname}"').fetchone()
+    cur.close()
+    conn.close()
+    
+    if result != None:
+        msg = bot.reply_to(message, 'Отлично, такой пользователь существует, введите пароль 🙂', parse_mode='html')
+        bot.register_next_step_handler(msg, user_pass)
+    
+    else:
+        bot.reply_to(message, 'Такого пользователя не существует 🙂', parse_mode='html')
     
 def user_pass(message):
+    global nickname
     password = message.text.strip()
-    bot.send_message(message.chat.id, 'Введите пароль 🙂', parse_mode='html')
-    bot.register_next_step_handler(message, user_pass)
+    conn = sqlite3.connect('user_data.sql')
+    cur = conn.cursor()
+    result = cur.execute(f'SELECT pass FROM user_info WHERE pass="{password}"').fetchone()
+    cur.close()
+    conn.close()
+    if result != None:
+        bot.reply_to(message, f'Привет, {nickname}! Давай я покажу тебе твои персональные рекомендации 🙂', parse_mode='html')
+        generate_personal_recs(message, nickname)
+    else: 
+        bot.reply_to(message, 'Неправильный пароль, попробуй еще раз 🙂', parse_mode='html')
+        
 
-    conn = sqlite3.connect('database_board_games.sql')
+def user_name_new(message):
+    global nickname 
+    nickname = message.text.strip()
+    bot.send_message(message.chat.id, 'Введите пароль 🙂', parse_mode='html')
+    bot.register_next_step_handler(message, user_pass_new)
+    
+def user_pass_new(message):
+    password = message.text
+    bot.send_message(message.chat.id, 'Введите пароль 🙂', parse_mode='html')
+    bot.register_next_step_handler(message, user_pass_new)
+
+    conn = sqlite3.connect('user_auth_info.sql')
     cur = conn.cursor()
     cur.execute("INSERT INTO users(nickname, pass) VALUES ('%s', '%s')" % (nickname, password))
     conn.commit()
@@ -222,21 +273,43 @@ def user_pass(message):
 
 @bot.callback_query_handler(func = lambda call: True)
 def callback(call):
-  conn = sqlite3.connect('database_board_games.sql')
-  cur = conn.cursor()
-  
-  cur.execute("SELECT * FROM users")
-  users = cur.fetchall()
-  
-  info = ''
-  for el in users:
-      info += f'Имя: {el[1]}\n'
-  
-  cur.close()
-  conn.close()
-  
-  bot.send_message(call.message.chat.id, info)
-
+    
+    if call.data=='users':
+        conn = sqlite3.connect('user_data.sql')
+        cur = conn.cursor()
+      
+        cur.execute("SELECT * FROM user_info")
+        users = cur.fetchall()
+      
+        info = ''
+        for el in users:
+            info += f'Имя: {el[1]}\n'
+      
+        cur.close()
+        conn.close()
+        bot.send_message(call.message.chat.id, info)
+    
+    if call.data=='category':
+        bot.send_message(call.message.chat.id, get_categories)
+        
+    if call.data == 'description':
+            game = b_games[b_games['title'].str.contains(pat = call.message.caption, case = False)].head(1)
+            clear_description = BeautifulSoup(game['description'].values[0], features="lxml").get_text()
+            bot.send_message(call.message.chat.id, 
+                    text = f'''
+<b>Название</b>: {game.title.values[0]}
+<b>Минимальное количество игроков</b>: {game.minplayers.values[0]}
+<b>Максимальное количество игроков</b>: {game.maxplayers.values[0]}
+<b>Время игры</b>: {game.maxplaytime.values[0]} минут 
+<b>Минимальный возраст для игры</b>: {game.age.values[0]}
+<b>Механики</b>: {game.mechanics.values[0].replace('|', ', ')}
+<b>Категория</b>: {game.category.values[0].replace('|', ', ')}
+<b>Описание</b>: {clear_description}
+                    ''',
+                    parse_mode='html'
+                    )
+            
+          
 
 bot.polling(non_stop=True)
 
