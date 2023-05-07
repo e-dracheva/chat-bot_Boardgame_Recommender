@@ -17,13 +17,13 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"  # For implicit ALS
 load_dotenv()
 TOKEN = (os.getenv('TOKEN'))
 bot = telebot.TeleBot(TOKEN)
-model = ALS().load(os.getenv('als_model'))
+model = ALS().load('models/als_model.npz')
 
 nickname = None
 
 
-b_games = pd.read_feather(os.getenv('bgg_boardgames_top_2000'))
-ratings = pd.read_feather(os.getenv('bgg_ratings_top_2000'))
+b_games = pd.read_feather('datasets/bgg_boardgames_top_2000.feather')
+ratings = pd.read_feather('datasets/bgg_ratings_top_2000.feather')
 
 users_inv_mapping = dict(enumerate(ratings['nickname'].unique()))
 users_mapping = {v: k for k, v in users_inv_mapping.items()}
@@ -205,7 +205,7 @@ def item(message):
 @bot.message_handler(commands=['user_recs'])
 def user_recs(message):
    
-    conn = sqlite3.connect('user_data.sql')
+    conn = sqlite3.connect('database/user_data.sql')
     cur = conn.cursor()
     cur.execute('CREATE TABLE IF NOT EXISTS user_info (id int auto_increment primary key, nickname varchar(50), pass varchar(50))')
     conn.commit()
@@ -220,7 +220,7 @@ def user_recs(message):
 def user_name(message):
     global nickname 
     nickname = message.text.strip()
-    conn = sqlite3.connect('user_data.sql')
+    conn = sqlite3.connect('database/user_data.sql')
     cur = conn.cursor()
     result = cur.execute(f'SELECT nickname FROM user_info WHERE nickname="{nickname}"').fetchone()
     cur.close()
@@ -236,7 +236,7 @@ def user_name(message):
 def user_pass(message):
     global nickname
     password = message.text.strip()
-    conn = sqlite3.connect('user_data.sql')
+    conn = sqlite3.connect('database/user_data.sql')
     cur = conn.cursor()
     result = cur.execute(f'SELECT pass FROM user_info WHERE pass="{password}"').fetchone()
     cur.close()
@@ -259,7 +259,7 @@ def user_pass_new(message):
     bot.send_message(message.chat.id, 'Введите пароль 🙂', parse_mode='html')
     bot.register_next_step_handler(message, user_pass_new)
 
-    conn = sqlite3.connect('user_auth_info.sql')
+    conn = sqlite3.connect('database/user_data.sql')
     cur = conn.cursor()
     cur.execute("INSERT INTO users(nickname, pass) VALUES ('%s', '%s')" % (nickname, password))
     conn.commit()
@@ -275,7 +275,7 @@ def user_pass_new(message):
 def callback(call):
     
     if call.data=='users':
-        conn = sqlite3.connect('user_data.sql')
+        conn = sqlite3.connect('database/user_data.sql')
         cur = conn.cursor()
       
         cur.execute("SELECT * FROM user_info")
