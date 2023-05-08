@@ -72,6 +72,7 @@ def get_categories():
             categories_set.add(category)
     return categories_set
 
+
 def popular_games(df, message, n=10):  
     popularGames = df
     
@@ -105,6 +106,7 @@ def popular_games(df, message, n=10):
         parse_mode='html',
         reply_markup = 	markup)
 
+
 def get_coo_matrix(df, 
                    user_col='nickname', 
                    item_col='boardgame_id', 
@@ -124,6 +126,7 @@ def get_coo_matrix(df,
         )
     ))
     return interaction_matrix            
+
 
 def generate_personal_recs(message, user, model=model, matrix=get_coo_matrix(ratings).tocsr(), N=5, 
                            users_mapping=users_mapping, items_inv_mapping=items_inv_mapping):
@@ -152,22 +155,47 @@ def generate_personal_recs(message, user, model=model, matrix=get_coo_matrix(rat
         reply_markup = 	markup)
 
 
+@bot.message_handler(commands=['users'])
+def users(message):
+    users = ratings['nickname'].sample(n=5).values.tolist()
+    bot.send_message(message.chat.id, str(users))
+
+
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, 'Привет! \nЭтот бот умеет рекомендовать тебе различные настольные игры 🙂 Выбери, как ты хочешь получить рекомендации - посмотреть самое популярное или найти похожую игру. Если у тебя есть учетка, то ты можешь посмотреть персональные рекомендации. Также можно просто запросить случайную игру. Учти, что бот работает пока только на английском языке 🙂', parse_mode='html')
+    bot.send_message(message.chat.id, 
+                     f'''
+                     Привет! \nЭтот бот умеет рекомендовать тебе различные настольные игры 🎲 \n
+<b>Выбери, как ты хочешь получить рекомендации: </b>
+    
+    🔝 {"/top"} посмотреть самое популярное
+    
+    👯‍♀ {"/item_recs"} найти похожую игру. 
+    
+    🦹‍♀ Если у тебя есть учетка, то ты можешь посмотреть персональные рекомендации - {"/user_recs"}
+                         
+    🎱 Также можно просто запросить случайную игру - {"/random"}. 
+                         
+    Учти, что бот работает пока только на английском языке 🇬🇧
+    
+    Также любую игру можно купить нажав на кнопку "Купить" и заполнить платежные данные 💵
+                     ''', 
+                     parse_mode='html',
+                     )
+
 
 @bot.message_handler(commands=['top'])
 def top(message):
     msg = bot.send_message(message.chat.id, 
                            'Сколько игр тебе показать? 🙂 (пришли цифру)', 
                            parse_mode='html')
-    bot.register_next_step_handler(msg, number)
+    bot.register_next_step_handler(msg, callback=number)
     
 def number(message):
-    try:
-            popular_games(b_games, message, n=int(message.text))
-    except ValueError:
-            bot.reply_to(message, 'Не понимаю 🙁', parse_mode='html')
+        try:
+                popular_games(b_games, message, n=int(message.text))
+        except ValueError:
+                bot.reply_to(message, 'Не понимаю 🙁', parse_mode='html')
 
 
 @bot.message_handler(commands=['random'])
@@ -189,6 +217,33 @@ def random(message):
         parse_mode='html',
         reply_markup = 	markup)
 
+@bot.message_handler(commands=['search'])
+def search(message):
+    msg = bot.send_message(message.chat.id, 'Введи игру, которую хочешь найти 🙂(работает только на английском языке)', parse_mode='html')
+    bot.register_next_step_handler(msg, searching)
+def searching(message):
+    try:
+        search_result = b_games.loc[b_games['title'].str.contains(message.text, case = False)]
+        search_result_dict = dict(enumerate(search_result['title'].values))
+        bot.send_message(message.chat.id, 'Вот что нашлось 🙂')
+        for game in search_result_dict:
+              img=Image.open(requests.get(search_result[search_result['title']==search_result_dict[game]]['image_link'].values[0], stream=True).raw)
+              markup = telebot.types.InlineKeyboardMarkup()
+              btn1 = telebot.types.InlineKeyboardButton('Посмотреть описание', callback_data='description')
+              btn2 = telebot.types.InlineKeyboardButton('Купить', web_app=WebAppInfo(url = 'https://e-dracheva.github.io/'))
+              markup.add(btn1, btn2)
+              bot.send_photo(message.chat.id, 
+                  img, 
+                  caption = 
+                  f'''
+                  {search_result_dict[game]}
+                  ''',
+                  parse_mode='html',
+                  reply_markup = 	markup)
+        
+    except:
+        bot.send_message(message.chat.id, 'Извини, либо нет такой игры либо что-то пошло не так🙂', parse_mode='html')
+        
 
 @bot.message_handler(commands=['item_recs'])
 def item_recs(message):
@@ -298,6 +353,7 @@ def callback(call):
             bot.send_message(call.message.chat.id, 
                     text = f'''
 <b>Название</b>: {game.title.values[0]}
+<b>Рейтинг</b>: {game.average_rating.values[0].astype(float).round(2)}
 <b>Минимальное количество игроков</b>: {game.minplayers.values[0]}
 <b>Максимальное количество игроков</b>: {game.maxplayers.values[0]}
 <b>Время игры</b>: {game.maxplaytime.values[0]} минут 
