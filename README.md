@@ -37,7 +37,7 @@ ALS предсказывает не исходное значение взаим
 
 <h3>Как запустить сервис через Docker:</h3>
 
-1. Образ есть на Docker Hub, поэтому можно скопировать его себе
+1. Образ есть на <a href="https://hub.docker.com/r/eidracheva/my_bot">Docker Hub<a>, поэтому можно скопировать его себе
 <pre><code>docker pull eidracheva/my_bot</code></pre>
 2. Обратите внимание, что внутри есть переменные окружения, поэтому для запуска нужно указать токен телеграм-бота в переменную TOKEN
 <pre><code>docker run --rm -e TOKEN=*YOUR_TOKEN HERE* eidracheva/my_bot</code></pre>
