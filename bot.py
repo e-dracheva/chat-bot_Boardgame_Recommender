@@ -181,6 +181,8 @@ def start(message):
     Учти, что бот работает пока только на английском языке 🇬🇧
     
     Также любую игру можно купить нажав на кнопку "Купить" и заполнить платежные данные 💵
+    
+    P.s. Один запрос - одно действие. После взаимодействия история обнуляется, сделай запрос еще раз
                      ''', 
                      parse_mode='html',
                      )
@@ -197,7 +199,7 @@ def number(message):
         try:
                 popular_games(b_games, message, n=int(message.text))
         except ValueError:
-                bot.reply_to(message, 'Не понимаю 🙁', parse_mode='html')
+                bot.reply_to(message, 'Не понимаю 🙁\nВызови функцию еще раз', parse_mode='html')
 
 
 @bot.message_handler(commands=['random'])
@@ -227,7 +229,7 @@ def searching(message):
     try:
         search_result = b_games.loc[b_games['title'].str.contains(message.text, case = False)]
         search_result_dict = dict(enumerate(search_result['title'].values))
-        bot.send_message(message.chat.id, 'Вот что нашлось 🙂')
+        bot.send_message(message.chat.id, 'Вот что нашлось 🙂 (если пусто, то не нашлось ничего)\nВызови функцию еще раз')
         for game in search_result_dict:
               img=Image.open(requests.get(search_result[search_result['title']==search_result_dict[game]]['image_link'].values[0], stream=True).raw)
               markup = telebot.types.InlineKeyboardMarkup()
@@ -244,7 +246,7 @@ def searching(message):
                   reply_markup = 	markup)
         
     except:
-        bot.send_message(message.chat.id, 'Извини, либо нет такой игры либо что-то пошло не так🙂', parse_mode='html')
+        bot.send_message(message.chat.id, 'Извини, либо нет такой игры либо что-то пошло не так🙂\nВызови функцию еще раз', parse_mode='html')
         
 
 @bot.message_handler(commands=['item_recs'])
@@ -256,7 +258,7 @@ def item(message):
         title = b_games.loc[b_games['title'].str.contains(message.text, case = False)]['title'].values[0]
         get_similar_games(title, model, message)
     except:
-        bot.send_message(message.chat.id, 'Извини, либо нет такой игры либо что-то пошло не так🙂', parse_mode='html')
+        bot.send_message(message.chat.id, 'Извини, либо нет такой игры либо что-то пошло не так🙂\nВызови функцию еще раз', parse_mode='html')
 
 
 @bot.message_handler(commands=['user_recs'])
@@ -288,7 +290,7 @@ def user_name(message):
         bot.register_next_step_handler(msg, user_pass)
     
     else:
-        bot.reply_to(message, 'Такого пользователя не существует 🙂', parse_mode='html')
+        bot.reply_to(message, 'Такого пользователя не существует 🙂\nВызови функцию еще раз', parse_mode='html')
     
 def user_pass(message):
     global nickname
@@ -302,13 +304,13 @@ def user_pass(message):
         bot.reply_to(message, f'Привет, {nickname}! Давай я покажу тебе твои персональные рекомендации 🙂', parse_mode='html')
         generate_personal_recs(message, nickname)
     else: 
-        bot.reply_to(message, 'Неправильный пароль, попробуй еще раз 🙂', parse_mode='html')
+        bot.reply_to(message, 'Неправильный пароль🙂\nВызови функцию еще раз', parse_mode='html')
         
 
 def user_name_new(message):
     global nickname 
     nickname = message.text.strip()
-    bot.send_message(message.chat.id, 'Введите пароль 🙂', parse_mode='html')
+    bot.send_message(message.chat.id, 'Введите никнейм 🙂', parse_mode='html')
     bot.register_next_step_handler(message, user_pass_new)
     
 def user_pass_new(message):
